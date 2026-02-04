@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileSearch, PlusCircle, History } from "lucide-react";
+import { FileSearch, PlusCircle, History, Sun, Moon } from "lucide-react";
+import { useTheme } from "./ThemeProvider";
 
 export default function Navigation() {
   const pathname = usePathname();
+  const { theme, toggleTheme } = useTheme();
 
   const navItems = [
     { href: "/", label: "새 분석", icon: PlusCircle },
@@ -22,7 +24,7 @@ export default function Navigation() {
             <span>Log Analyzer</span>
           </Link>
 
-          {/* 네비게이션 메뉴 */}
+          {/* 네비게이션 메뉴 + 테마 토글 */}
           <div className="flex items-center gap-1">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -43,6 +45,19 @@ export default function Navigation() {
                 </Link>
               );
             })}
+
+            {/* 테마 토글 버튼 */}
+            <button
+              onClick={toggleTheme}
+              className="ml-2 flex items-center justify-center rounded-lg p-2 text-muted transition-colors hover:bg-card hover:text-foreground"
+              aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
+            >
+              {theme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </button>
           </div>
         </div>
       </div>

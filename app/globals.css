@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 다크 모드 (기본) */
 :root {
   --background: #0f0f0f;
   --foreground: #e5e5e5;
@@ -16,10 +17,26 @@
   --error: #ef4444;
 }
 
+/* 라이트 모드 */
+.light {
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #f5f5f5;
+  --card-hover: #e5e5e5;
+  --border: #e5e5e5;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --muted: #737373;
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
   min-height: 100vh;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 /* 스크롤바 스타일 */
