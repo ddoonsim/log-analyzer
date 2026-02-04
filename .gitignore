@@ -53,3 +53,5 @@ Thumbs.db
 
 # Claude Code
 CLAUDE.md
+
+/app/generated/prisma
