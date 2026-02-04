@@ -1,0 +1,46 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  title      String?
+  systemInfo String    // JSON string (SQLite doesn't support Json type)
+  summary    String?
+  issueCount Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  messages   Message[]
+  files      File[]
+}
+
+model Message {
+  id            String   @id @default(cuid())
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role          String   // "user" | "assistant"
+  content       String
+  attachedFiles File[]
+  createdAt     DateTime @default(now())
+}
+
+model File {
+  id         String   @id @default(cuid())
+  sessionId  String
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  messageId  String?
+  message    Message? @relation(fields: [messageId], references: [id])
+  filename   String
+  mimeType   String
+  size       Int
+  content    String
+  uploadedAt DateTime @default(now())
+}
