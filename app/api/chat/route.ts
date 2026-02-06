@@ -110,7 +110,7 @@ ${filesContent}`;
         model: anthropic("claude-sonnet-4-20250514"),
         system: fullSystemPrompt,
         messages: conversationHistory,
-        maxTokens: 4096,
+        maxOutputTokens: 4096,
         // 7. 스트리밍 완료 후 assistant 메시지 DB 저장
         onFinish: async ({ text }) => {
           await prisma.message.create({
