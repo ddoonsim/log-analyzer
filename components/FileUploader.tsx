@@ -119,7 +119,7 @@ export default function FileUploader({
                 key={id}
                 className="flex items-center justify-between px-4 py-3"
               >
-                <div className="flex items-center gap-3 overflow-hidden">
+                <div className="flex items-center gap-3 overflow-hidden" data-tooltip={file.name}>
                   <File className="h-4 w-4 shrink-0 text-muted" />
                   <div className="overflow-hidden">
                     <p className="truncate text-sm">{file.name}</p>
