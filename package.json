@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.36",
+    "@anthropic-ai/sdk": "^0.73.0",
     "@prisma/client": "^6.19.2",
     "ai": "^6.0.69",
     "date-fns": "^4.1.0",
