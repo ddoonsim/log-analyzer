@@ -1,52 +1,49 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { streamText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { prisma } from "@/lib/db";
-import { anthropic, MODEL, MAX_TOKENS } from "@/lib/claude";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
+import {
+  buildChatContext,
+  formatFilesForPrompt,
+  processNewFile,
+} from "@/lib/context-builder";
 
 export async function POST(request: NextRequest) {
   try {
+    // 1. sessionId와 새 메시지 받기
     const formData = await request.formData();
-
     const sessionId = formData.get("sessionId") as string;
     const message = formData.get("message") as string;
     const files = formData.getAll("files") as File[];
 
     if (!sessionId) {
-      return NextResponse.json(
-        { error: "sessionId가 필요합니다" },
-        { status: 400 }
-      );
+      return new Response(JSON.stringify({ error: "sessionId가 필요합니다" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     if (!message && files.length === 0) {
-      return NextResponse.json(
-        { error: "메시지 또는 파일이 필요합니다" },
-        { status: 400 }
+      return new Response(
+        JSON.stringify({ error: "메시지 또는 파일이 필요합니다" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // 세션 확인
-    const session = await prisma.session.findUnique({
-      where: { id: sessionId },
-      include: {
-        files: true,
-        messages: {
-          orderBy: { createdAt: "asc" },
-          include: { attachedFiles: true },
-        },
-      },
-    });
+    // 3. 컨텍스트 빌더로 세션 정보 조회
+    const context = await buildChatContext(sessionId);
 
-    if (!session) {
-      return NextResponse.json(
-        { error: "세션을 찾을 수 없습니다" },
-        { status: 404 }
+    if (!context) {
+      return new Response(
+        JSON.stringify({ error: "세션을 찾을 수 없습니다" }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // 첨부 파일 처리
+    // 2. 새 메시지에 첨부 파일 있으면 저장
     const attachedFiles: { id: string; filename: string }[] = [];
-    let fileContextText = "";
+    let newFileContext = "";
 
     if (files.length > 0) {
       for (const file of files) {
@@ -63,11 +60,17 @@ export async function POST(request: NextRequest) {
         });
 
         attachedFiles.push({ id: savedFile.id, filename: savedFile.filename });
-        fileContextText += `\n\n### 새로 첨부된 파일: ${file.name}\n\`\`\`\n${content}\n\`\`\``;
+
+        // 토큰 제한 적용하여 파일 처리
+        const processedFile = processNewFile(file.name, content);
+        newFileContext += `\n\n### 새로 첨부된 파일: ${processedFile.filename}${processedFile.truncated ? " (일부 표시)" : ""}
+\`\`\`
+${processedFile.content}
+\`\`\``;
       }
     }
 
-    // 사용자 메시지 저장
+    // 6. 사용자 메시지 DB 저장
     const userMessage = await prisma.message.create({
       data: {
         sessionId,
@@ -79,90 +82,73 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // 4. 전체 시스템 프롬프트 구성
+    const filesContent = formatFilesForPrompt(context.files);
+    const fullSystemPrompt = `${SYSTEM_PROMPT}
+
+${context.systemPromptContext}
+
+## 초기 업로드된 로그 파일
+${filesContent}`;
+
     // 대화 히스토리 구성
-    const systemInfo = JSON.parse(session.systemInfo);
-    const systemContext = `## 시스템 정보
-- 운영체제: ${systemInfo.os || "미지정"}
-- 애플리케이션: ${systemInfo.appName || "미지정"}
-- 버전: ${systemInfo.appVersion || "미지정"}
-- 환경: ${systemInfo.environment || "미지정"}
-${systemInfo.notes ? `- 기타: ${systemInfo.notes}` : ""}
-
-## 업로드된 로그 파일
-${session.files.map((f) => `- ${f.filename} (${f.size} bytes)`).join("\n")}
-`;
-
-    const conversationHistory = session.messages.map((msg) => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-    }));
+    const conversationHistory = [...context.messages];
 
     // 현재 메시지 추가 (파일 컨텍스트 포함)
-    const currentMessageContent = fileContextText
-      ? `${message || "첨부된 파일을 분석해주세요."}${fileContextText}`
+    const currentMessageContent = newFileContext
+      ? `${message || "첨부된 파일을 분석해주세요."}${newFileContext}`
       : message;
 
     conversationHistory.push({
-      role: "user",
+      role: "user" as const,
       content: currentMessageContent,
     });
 
-    // Claude API 호출
-    let assistantResponse: string;
-
+    // 5. Claude API 스트리밍 호출
     try {
-      const response = await anthropic.messages.create({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: `${SYSTEM_PROMPT}\n\n${systemContext}`,
+      const result = streamText({
+        model: anthropic("claude-sonnet-4-20250514"),
+        system: fullSystemPrompt,
         messages: conversationHistory,
+        maxTokens: 4096,
+        // 7. 스트리밍 완료 후 assistant 메시지 DB 저장
+        onFinish: async ({ text }) => {
+          await prisma.message.create({
+            data: {
+              sessionId,
+              role: "assistant",
+              content: text,
+            },
+          });
+
+          // 세션 업데이트
+          await prisma.session.update({
+            where: { id: sessionId },
+            data: { updatedAt: new Date() },
+          });
+        },
       });
 
-      const textBlock = response.content.find((block) => block.type === "text");
-      assistantResponse = textBlock
-        ? textBlock.text
-        : "응답을 생성할 수 없습니다.";
-    } catch (apiError) {
-      console.error("Claude API 오류:", apiError);
-      assistantResponse =
-        "AI 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+      // 스트리밍 응답 반환
+      const response = result.toTextStreamResponse();
+
+      // 커스텀 헤더 추가
+      response.headers.set("X-User-Message-Id", userMessage.id);
+      response.headers.set("X-Attached-Files", JSON.stringify(attachedFiles));
+
+      return response;
+    } catch (streamError) {
+      console.error("스트리밍 오류:", streamError);
+      return new Response(
+        JSON.stringify({ error: "AI 응답 생성 중 오류가 발생했습니다" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
-
-    // assistant 메시지 저장
-    const assistantMessage = await prisma.message.create({
-      data: {
-        sessionId,
-        role: "assistant",
-        content: assistantResponse,
-      },
-    });
-
-    // 세션 업데이트
-    await prisma.session.update({
-      where: { id: sessionId },
-      data: { updatedAt: new Date() },
-    });
-
-    return NextResponse.json({
-      userMessage: {
-        id: userMessage.id,
-        role: userMessage.role,
-        content: userMessage.content,
-        attachedFiles,
-        createdAt: userMessage.createdAt,
-      },
-      assistantMessage: {
-        id: assistantMessage.id,
-        role: assistantMessage.role,
-        content: assistantMessage.content,
-        createdAt: assistantMessage.createdAt,
-      },
-    });
   } catch (error) {
     console.error("채팅 오류:", error);
-    return NextResponse.json(
-      { error: "메시지 처리에 실패했습니다" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ error: "메시지 처리에 실패했습니다" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }

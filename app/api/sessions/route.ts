@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { anthropic, MODEL, MAX_TOKENS } from "@/lib/claude";
 import { buildInitialAnalysisPrompt, SYSTEM_PROMPT } from "@/lib/prompts";
+import { processNewFile } from "@/lib/context-builder";
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,11 +57,16 @@ export async function POST(request: NextRequest) {
       })),
     });
 
-    // 4. Claude API로 초기 분석 요청
-    const analysisPrompt = buildInitialAnalysisPrompt(
-      systemInfo,
-      fileContents.map((f) => ({ filename: f.filename, content: f.content }))
-    );
+    // 4. Claude API로 초기 분석 요청 (토큰 제한 적용)
+    const optimizedFiles = fileContents.map((f) => {
+      const processed = processNewFile(f.filename, f.content);
+      return {
+        filename: processed.filename,
+        content: processed.content,
+      };
+    });
+
+    const analysisPrompt = buildInitialAnalysisPrompt(systemInfo, optimizedFiles);
 
     let analysisResult: string;
 

@@ -25,7 +25,12 @@ export default async function SessionPage({ params }: Props) {
     notFound();
   }
 
-  const systemInfo = JSON.parse(session.systemInfo);
+  let systemInfo = { os: "", appName: "", appVersion: "", environment: "", notes: "" };
+  try {
+    systemInfo = JSON.parse(session.systemInfo);
+  } catch {
+    console.error("Failed to parse systemInfo:", session.systemInfo);
+  }
 
   // 초기 업로드 파일 (메시지에 연결되지 않은 파일)
   const initialFiles = session.files.filter((f) => !f.messageId);

@@ -29,7 +29,9 @@ export default function ChatInterface({
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamingContent, setStreamingContent] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,13 +39,14 @@ export default function ChatInterface({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, streamingContent]);
 
   const handleSend = async (message: string, files: File[]) => {
     setIsLoading(true);
     setError(null);
+    setStreamingContent("");
 
-    // 임시 사용자 메시지 추가 (낙관적 업데이트)
+    // 임시 사용자 메시지 추가
     const tempUserMessage: Message = {
       id: `temp-${Date.now()}`,
       role: "user",
@@ -64,40 +67,88 @@ export default function ChatInterface({
         formData.append("files", file);
       });
 
+      // AbortController for cancellation
+      abortControllerRef.current = new AbortController();
+
       const response = await fetch("/api/chat", {
         method: "POST",
         body: formData,
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "메시지 전송에 실패했습니다");
+        let errorMessage = "메시지 전송에 실패했습니다";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // JSON 파싱 실패 시 기본 에러 메시지 사용
+        }
+        throw new Error(errorMessage);
       }
 
-      const { userMessage, assistantMessage } = await response.json();
+      // 헤더에서 사용자 메시지 정보 추출
+      const userMessageId = response.headers.get("X-User-Message-Id");
+      const attachedFilesHeader = response.headers.get("X-Attached-Files");
+      let attachedFiles: AttachedFile[] = [];
+      if (attachedFilesHeader) {
+        try {
+          attachedFiles = JSON.parse(attachedFilesHeader);
+        } catch {
+          // 헤더 파싱 실패 시 빈 배열 사용
+        }
+      }
 
-      // 실제 응답으로 메시지 업데이트
-      setMessages((prev) => {
-        // 임시 메시지 제거 후 실제 메시지 추가
-        const withoutTemp = prev.filter((m) => m.id !== tempUserMessage.id);
-        return [
-          ...withoutTemp,
-          {
-            ...userMessage,
-            createdAt: new Date(userMessage.createdAt),
-          },
-          {
-            ...assistantMessage,
-            createdAt: new Date(assistantMessage.createdAt),
-          },
-        ];
-      });
+      // 임시 메시지를 실제 메시지로 교체
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempUserMessage.id
+            ? {
+                ...m,
+                id: userMessageId || m.id,
+                attachedFiles,
+              }
+            : m
+        )
+      );
+
+      // 스트리밍 응답 처리
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          fullContent += chunk;
+          setStreamingContent(fullContent);
+        }
+      }
+
+      // 스트리밍 완료 후 assistant 메시지 추가
+      const assistantMessage: Message = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: fullContent,
+        createdAt: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+      setStreamingContent("");
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        // 취소된 요청
+        return;
+      }
       // 에러 시 임시 메시지 제거
       setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
       setError(err instanceof Error ? err.message : "오류가 발생했습니다");
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -115,7 +166,17 @@ export default function ChatInterface({
           />
         ))}
 
-        {isLoading && (
+        {/* 스트리밍 중인 응답 */}
+        {streamingContent && (
+          <ChatMessage
+            role="assistant"
+            content={streamingContent}
+            createdAt={new Date()}
+          />
+        )}
+
+        {/* 로딩 인디케이터 (스트리밍 시작 전) */}
+        {isLoading && !streamingContent && (
           <div className="flex gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card border border-border">
               <div className="h-4 w-4 animate-pulse rounded-full bg-primary" />

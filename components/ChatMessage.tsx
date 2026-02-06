@@ -2,6 +2,7 @@
 
 import { User, Bot, File } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface AttachedFile {
   id: string;
@@ -68,8 +69,9 @@ export default function ChatMessage({
           {isUser ? (
             <p className="whitespace-pre-wrap text-sm">{content}</p>
           ) : (
-            <div className="prose prose-sm prose-invert max-w-none text-foreground">
+            <div className="prose prose-sm max-w-none text-foreground">
               <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
                 components={{
                   pre: ({ children }) => (
                     <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs">
@@ -79,7 +81,7 @@ export default function ChatMessage({
                   code: ({ children, className }) => {
                     const isInline = !className;
                     return isInline ? (
-                      <code className="rounded bg-background px-1.5 py-0.5 text-xs">
+                      <code className="rounded bg-background px-1.5 py-0.5 text-xs text-primary">
                         {children}
                       </code>
                     ) : (
@@ -93,20 +95,56 @@ export default function ChatMessage({
                     <ol className="list-decimal pl-4 space-y-1">{children}</ol>
                   ),
                   h1: ({ children }) => (
-                    <h1 className="text-lg font-bold mt-4 mb-2">{children}</h1>
+                    <h1 className="text-lg font-bold mt-4 mb-2 text-foreground">{children}</h1>
                   ),
                   h2: ({ children }) => (
-                    <h2 className="text-base font-bold mt-3 mb-2">{children}</h2>
+                    <h2 className="text-base font-bold mt-3 mb-2 text-foreground">{children}</h2>
                   ),
                   h3: ({ children }) => (
-                    <h3 className="text-sm font-bold mt-2 mb-1">{children}</h3>
+                    <h3 className="text-sm font-bold mt-2 mb-1 text-foreground">{children}</h3>
+                  ),
+                  h4: ({ children }) => (
+                    <h4 className="text-sm font-semibold mt-2 mb-1 text-foreground">{children}</h4>
                   ),
                   p: ({ children }) => (
                     <p className="mb-2 last:mb-0">{children}</p>
                   ),
                   strong: ({ children }) => (
-                    <strong className="font-semibold">{children}</strong>
+                    <strong className="font-semibold text-foreground">{children}</strong>
                   ),
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto my-3">
+                      <table className="min-w-full border-collapse border border-border text-sm">
+                        {children}
+                      </table>
+                    </div>
+                  ),
+                  thead: ({ children }) => (
+                    <thead className="bg-background">{children}</thead>
+                  ),
+                  tbody: ({ children }) => <tbody>{children}</tbody>,
+                  tr: ({ children }) => (
+                    <tr className="border-b border-border">{children}</tr>
+                  ),
+                  th: ({ children }) => (
+                    <th className="border border-border px-3 py-2 text-left font-semibold text-foreground">
+                      {children}
+                    </th>
+                  ),
+                  td: ({ children }) => (
+                    <td className="border border-border px-3 py-2">{children}</td>
+                  ),
+                  a: ({ children, href }) => (
+                    <a href={href} className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
+                      {children}
+                    </a>
+                  ),
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-4 border-primary pl-4 italic my-2">
+                      {children}
+                    </blockquote>
+                  ),
+                  hr: () => <hr className="my-4 border-border" />,
                 }}
               >
                 {content}
