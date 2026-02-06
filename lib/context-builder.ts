@@ -98,7 +98,7 @@ function optimizeLogContent(
   });
 
   // 2. 결과 구성 (에러/경고 + 최근 일반 로그)
-  let result: string[] = [];
+  const result: string[] = [];
   let usedTokens = 0;
 
   // 에러/경고 라인 우선 추가
