@@ -1,8 +1,9 @@
 import { prisma } from "./db";
 
 // 대략적인 토큰 계산 (한글 1자 ≈ 2토큰, 영문 1단어 ≈ 1토큰)
-const MAX_LOG_TOKENS = 50000; // 로그 컨텐츠 최대 토큰
-const MAX_FILE_TOKENS = 30000; // 파일당 최대 토큰
+// API 분당 제한(30,000 토큰)을 고려하여 시스템 프롬프트 + 대화 히스토리 공간 확보
+const MAX_LOG_TOKENS = 15000; // 로그 컨텐츠 최대 토큰 (전체)
+const MAX_FILE_TOKENS = 10000; // 파일당 최대 토큰
 
 interface SystemInfo {
   os: string;

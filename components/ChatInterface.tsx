@@ -77,16 +77,27 @@ export default function ChatInterface({
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "메시지 전송에 실패했습니다");
+        let errorMessage = "메시지 전송에 실패했습니다";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // JSON 파싱 실패 시 기본 에러 메시지 사용
+        }
+        throw new Error(errorMessage);
       }
 
       // 헤더에서 사용자 메시지 정보 추출
       const userMessageId = response.headers.get("X-User-Message-Id");
       const attachedFilesHeader = response.headers.get("X-Attached-Files");
-      const attachedFiles = attachedFilesHeader
-        ? JSON.parse(attachedFilesHeader)
-        : [];
+      let attachedFiles: AttachedFile[] = [];
+      if (attachedFilesHeader) {
+        try {
+          attachedFiles = JSON.parse(attachedFilesHeader);
+        } catch {
+          // 헤더 파싱 실패 시 빈 배열 사용
+        }
+      }
 
       // 임시 메시지를 실제 메시지로 교체
       setMessages((prev) =>
@@ -112,21 +123,8 @@ export default function ChatInterface({
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-
-          // Vercel AI SDK 데이터 스트림 파싱
-          const lines = chunk.split("\n");
-          for (const line of lines) {
-            if (line.startsWith("0:")) {
-              // 텍스트 청크
-              try {
-                const text = JSON.parse(line.slice(2));
-                fullContent += text;
-                setStreamingContent(fullContent);
-              } catch {
-                // JSON 파싱 실패 시 무시
-              }
-            }
-          }
+          fullContent += chunk;
+          setStreamingContent(fullContent);
         }
       }
 

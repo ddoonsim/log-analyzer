@@ -105,37 +105,45 @@ ${filesContent}`;
     });
 
     // 5. Claude API 스트리밍 호출
-    const result = streamText({
-      model: anthropic("claude-sonnet-4-20250514"),
-      system: fullSystemPrompt,
-      messages: conversationHistory,
-      maxTokens: 4096,
-      // 7. 스트리밍 완료 후 assistant 메시지 DB 저장
-      onFinish: async ({ text }) => {
-        await prisma.message.create({
-          data: {
-            sessionId,
-            role: "assistant",
-            content: text,
-          },
-        });
+    try {
+      const result = streamText({
+        model: anthropic("claude-sonnet-4-20250514"),
+        system: fullSystemPrompt,
+        messages: conversationHistory,
+        maxTokens: 4096,
+        // 7. 스트리밍 완료 후 assistant 메시지 DB 저장
+        onFinish: async ({ text }) => {
+          await prisma.message.create({
+            data: {
+              sessionId,
+              role: "assistant",
+              content: text,
+            },
+          });
 
-        // 세션 업데이트
-        await prisma.session.update({
-          where: { id: sessionId },
-          data: { updatedAt: new Date() },
-        });
-      },
-    });
+          // 세션 업데이트
+          await prisma.session.update({
+            where: { id: sessionId },
+            data: { updatedAt: new Date() },
+          });
+        },
+      });
 
-    // 스트리밍 응답 반환
-    const response = result.toDataStreamResponse();
+      // 스트리밍 응답 반환
+      const response = result.toTextStreamResponse();
 
-    // 커스텀 헤더 추가
-    response.headers.set("X-User-Message-Id", userMessage.id);
-    response.headers.set("X-Attached-Files", JSON.stringify(attachedFiles));
+      // 커스텀 헤더 추가
+      response.headers.set("X-User-Message-Id", userMessage.id);
+      response.headers.set("X-Attached-Files", JSON.stringify(attachedFiles));
 
-    return response;
+      return response;
+    } catch (streamError) {
+      console.error("스트리밍 오류:", streamError);
+      return new Response(
+        JSON.stringify({ error: "AI 응답 생성 중 오류가 발생했습니다" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
   } catch (error) {
     console.error("채팅 오류:", error);
     return new Response(
