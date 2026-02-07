@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { parseLog, buildLogSummary, formatEntryForPrompt } from "./parser";
 
 // 대략적인 토큰 계산 (한글 1자 ≈ 2토큰, 영문 1단어 ≈ 1토큰)
 // API 분당 제한(30,000 토큰)을 고려하여 시스템 프롬프트 + 대화 히스토리 공간 확보
@@ -18,6 +19,7 @@ interface ProcessedFile {
   content: string;
   originalSize: number;
   truncated: boolean;
+  formatSummary?: string;
 }
 
 interface ChatContext {
@@ -28,35 +30,6 @@ interface ChatContext {
     content: string;
   }>;
   systemPromptContext: string;
-}
-
-// 에러/경고 패턴
-const ERROR_PATTERNS = [
-  /error/i,
-  /exception/i,
-  /failed/i,
-  /failure/i,
-  /fatal/i,
-  /critical/i,
-  /warn/i,
-  /warning/i,
-  /denied/i,
-  /refused/i,
-  /timeout/i,
-  /timed out/i,
-  /not found/i,
-  /없음/,
-  /실패/,
-  /오류/,
-  /에러/,
-  /경고/,
-];
-
-/**
- * 로그 라인이 에러/경고인지 확인
- */
-function isImportantLine(line: string): boolean {
-  return ERROR_PATTERNS.some((pattern) => pattern.test(line));
 }
 
 /**
@@ -70,71 +43,74 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * 로그 내용 최적화 (에러/경고 우선, 최근 로그 우선)
+ * 로그 내용 최적화 (구조화 파싱 + 에러/경고 우선 + 최근 로그 우선)
  */
 function optimizeLogContent(
   content: string,
   maxTokens: number = MAX_FILE_TOKENS
-): { content: string; truncated: boolean } {
+): { content: string; truncated: boolean; formatSummary?: string } {
+  // 파서로 구조화 파싱
+  const parseResult = parseLog(content, { maxEntries: 2000 });
+  const summary = buildLogSummary(parseResult);
+
   const currentTokens = estimateTokens(content);
 
-  // 토큰 제한 이내면 그대로 반환
+  // 토큰 제한 이내면 요약만 앞에 붙여서 반환
   if (currentTokens <= maxTokens) {
-    return { content, truncated: false };
+    return { content, truncated: false, formatSummary: summary };
   }
 
-  const lines = content.split("\n");
+  // 에러/경고 엔트리와 일반 엔트리 분리
+  const issueEntries = parseResult.entries.filter(
+    (e) => e.level === "fatal" || e.level === "error" || e.level === "warn"
+  );
+  const normalEntries = parseResult.entries.filter(
+    (e) => e.level !== "fatal" && e.level !== "error" && e.level !== "warn"
+  );
 
-  // 1. 에러/경고 라인 추출
-  const importantLines: { index: number; line: string }[] = [];
-  const normalLines: { index: number; line: string }[] = [];
-
-  lines.forEach((line, index) => {
-    if (isImportantLine(line)) {
-      importantLines.push({ index, line });
-    } else {
-      normalLines.push({ index, line });
-    }
-  });
-
-  // 2. 결과 구성 (에러/경고 + 최근 일반 로그)
   const result: string[] = [];
   let usedTokens = 0;
 
-  // 에러/경고 라인 우선 추가
-  for (const { line } of importantLines) {
-    const lineTokens = estimateTokens(line);
-    if (usedTokens + lineTokens <= maxTokens * 0.7) {
-      result.push(line);
-      usedTokens += lineTokens;
+  // 로그 분석 요약 헤더
+  const header = `[로그 분석 요약]\n${summary}`;
+  result.push(header);
+  usedTokens += estimateTokens(header);
+
+  // 에러/경고 엔트리 구조화 출력 (70% 예산)
+  const errorBudget = maxTokens * 0.7;
+  for (const entry of issueEntries) {
+    const text = formatEntryForPrompt(entry);
+    const tokens = estimateTokens(text);
+    if (usedTokens + tokens <= errorBudget) {
+      result.push(text);
+      usedTokens += tokens;
     }
   }
 
   // 에러/경고 섹션 표시
-  if (importantLines.length > 0 && normalLines.length > 0) {
+  if (issueEntries.length > 0 && normalEntries.length > 0) {
     result.push("\n--- [에러/경고 외 로그 (최근)] ---\n");
     usedTokens += 20;
   }
 
-  // 남은 공간에 최근 일반 로그 추가 (역순으로)
-  const recentNormalLines = normalLines.slice(-Math.floor(normalLines.length * 0.3));
-  for (let i = recentNormalLines.length - 1; i >= 0; i--) {
-    const { line } = recentNormalLines[i];
-    const lineTokens = estimateTokens(line);
-    if (usedTokens + lineTokens <= maxTokens) {
-      result.push(line);
-      usedTokens += lineTokens;
+  // 남은 공간에 최근 일반 로그 추가 (최신부터)
+  for (let i = normalEntries.length - 1; i >= 0; i--) {
+    const text = normalEntries[i].raw;
+    const tokens = estimateTokens(text);
+    if (usedTokens + tokens <= maxTokens) {
+      result.push(text);
+      usedTokens += tokens;
     } else {
       break;
     }
   }
 
-  // truncation 표시 추가
-  const truncationNotice = `\n\n[로그가 너무 길어 일부만 표시됩니다. 원본: ${lines.length}줄, 표시: ${result.length}줄]\n[에러/경고: ${importantLines.length}건 포함]`;
+  const truncationNotice = `[로그가 너무 길어 일부만 표시됩니다. 원본: ${parseResult.totalLines}줄, 에러/경고: ${issueEntries.length}건]`;
 
   return {
     content: truncationNotice + "\n\n" + result.join("\n"),
     truncated: true,
+    formatSummary: summary,
   };
 }
 
@@ -272,7 +248,7 @@ export function processNewFile(
   content: string,
   maxTokens: number = MAX_FILE_TOKENS
 ): ProcessedFile {
-  const { content: optimizedContent, truncated } = optimizeLogContent(
+  const { content: optimizedContent, truncated, formatSummary } = optimizeLogContent(
     content,
     maxTokens
   );
@@ -282,5 +258,6 @@ export function processNewFile(
     content: optimizedContent,
     originalSize: content.length,
     truncated,
+    formatSummary,
   };
 }

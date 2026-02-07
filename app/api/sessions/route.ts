@@ -122,12 +122,16 @@ export async function POST(request: NextRequest) {
       })),
     });
 
-    // 4. Claude API로 초기 분석 요청 (토큰 제한 적용)
+    // 4. Claude API로 초기 분석 요청 (토큰 제한 + 포맷 감지 적용)
     const optimizedFiles = fileContents.map((f) => {
       const processed = processNewFile(f.filename, f.content);
+      // 포맷 감지 결과를 파일 내용 앞에 추가
+      const formatHeader = processed.formatSummary
+        ? `[${f.filename} 로그 분석 메타정보]\n${processed.formatSummary}\n\n`
+        : "";
       return {
         filename: processed.filename,
-        content: processed.content,
+        content: formatHeader + processed.content,
       };
     });
 
