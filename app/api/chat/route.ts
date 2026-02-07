@@ -61,9 +61,12 @@ export async function POST(request: NextRequest) {
 
         attachedFiles.push({ id: savedFile.id, filename: savedFile.filename });
 
-        // 토큰 제한 적용하여 파일 처리
+        // 토큰 제한 적용 + 포맷 감지
         const processedFile = processNewFile(file.name, content);
-        newFileContext += `\n\n### 새로 첨부된 파일: ${processedFile.filename}${processedFile.truncated ? " (일부 표시)" : ""}
+        const formatInfo = processedFile.formatSummary
+          ? `\n**로그 형식 분석:**\n${processedFile.formatSummary}\n`
+          : "";
+        newFileContext += `\n\n### 새로 첨부된 파일: ${processedFile.filename}${processedFile.truncated ? " (일부 표시)" : ""}${formatInfo}
 \`\`\`
 ${processedFile.content}
 \`\`\``;
