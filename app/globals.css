@@ -15,6 +15,11 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --error: #ef4444;
+  --quick-btn-bg: #3b82f6;
+  --quick-btn-text: #ffffff;
+  --quick-btn-border: transparent;
+  --quick-btn-hover-bg: #2563eb;
+  --quick-btn-hover-text: #ffffff;
 }
 
 /* 라이트 모드 */
@@ -30,6 +35,11 @@
   --success: #16a34a;
   --warning: #d97706;
   --error: #dc2626;
+  --quick-btn-bg: #ffffff;
+  --quick-btn-text: #2563eb;
+  --quick-btn-border: #2563eb;
+  --quick-btn-hover-bg: #2563eb;
+  --quick-btn-hover-text: #ffffff;
 }
 
 body {
@@ -107,6 +117,8 @@ body {
   opacity: 1;
   visibility: visible;
 }
+
+/* 빠른 질문 버튼 */
 
 /* 라이트 모드 툴팁 그림자 */
 .light [data-tooltip]::after {

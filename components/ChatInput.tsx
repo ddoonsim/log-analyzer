@@ -46,9 +46,24 @@ export default function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl/Cmd + Enter: 메시지 전송
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSubmit(e);
+      return;
+    }
+    // Enter (Shift 없이): 메시지 전송
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+      return;
+    }
+    // Esc: 입력 취소
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setMessage("");
+      setFiles([]);
+      (e.target as HTMLTextAreaElement).blur();
     }
   };
 
