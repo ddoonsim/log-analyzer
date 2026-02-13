@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { MessageCircleQuestion, ListChecks, ShieldCheck, FileText } from "lucide-react";
 
 interface QuickQuestionsProps {
@@ -14,16 +15,31 @@ const questions = [
 ];
 
 export default function QuickQuestions({ onSelect }: QuickQuestionsProps) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
   return (
     <div className="flex flex-wrap gap-2 px-2">
-      {questions.map((q) => {
+      {questions.map((q, index) => {
         const Icon = q.icon;
+        const isHovered = hoveredIndex === index;
         return (
           <button
             key={q.text}
             type="button"
             onClick={() => onSelect(q.text)}
-            className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/15 hover:border-primary/50"
+            onMouseEnter={() => setHoveredIndex(index)}
+            onMouseLeave={() => setHoveredIndex(null)}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium"
+            style={{
+              backgroundColor: isHovered
+                ? "var(--quick-btn-hover-bg)"
+                : "var(--quick-btn-bg)",
+              color: isHovered
+                ? "var(--quick-btn-hover-text)"
+                : "var(--quick-btn-text)",
+              border: "1px solid var(--quick-btn-border)",
+              transition: "background-color 0.2s, color 0.2s",
+            }}
           >
             <Icon className="h-3.5 w-3.5" />
             {q.text}
