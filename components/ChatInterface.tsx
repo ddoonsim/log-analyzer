@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import ChatMessage from "./ChatMessage";
 import ChatInput from "./ChatInput";
+import QuickQuestions from "./QuickQuestions";
 
 interface AttachedFile {
   id: string;
@@ -27,6 +28,7 @@ export default function ChatInterface({
   initialMessages,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const initialMessageCount = initialMessages.length;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
@@ -165,6 +167,15 @@ export default function ChatInterface({
             createdAt={message.createdAt}
           />
         ))}
+
+        {/* 빠른 질문 버튼 */}
+        {messages.length === initialMessageCount &&
+          messages.length > 0 &&
+          messages[messages.length - 1].role === "assistant" &&
+          !isLoading &&
+          !streamingContent && (
+            <QuickQuestions onSelect={(question) => handleSend(question, [])} />
+          )}
 
         {/* 스트리밍 중인 응답 */}
         {streamingContent && (
