@@ -97,7 +97,14 @@ export default async function SessionPage({ params }: Props) {
       </div>
 
       {/* 채팅 인터페이스 */}
-      <ChatInterface sessionId={session.id} initialMessages={messages} />
+      <ChatInterface
+        sessionId={session.id}
+        initialMessages={messages}
+        initialTokenUsage={{
+          inputTokens: session.totalInputTokens,
+          outputTokens: session.totalOutputTokens,
+        }}
+      />
     </div>
   );
 }

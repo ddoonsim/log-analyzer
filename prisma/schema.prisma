@@ -15,11 +15,14 @@ model Session {
   title      String?
   systemInfo String    // JSON string (SQLite doesn't support Json type)
   summary    String?
-  issueCount Int       @default(0)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  messages   Message[]
-  files      File[]
+  issueCount        Int       @default(0)
+  totalInputTokens  Int       @default(0)
+  totalOutputTokens Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  messages          Message[]
+  files             File[]
+  summaries         ConversationSummary[]
 }
 
 model Message {
@@ -30,6 +33,16 @@ model Message {
   content       String
   attachedFiles File[]
   createdAt     DateTime @default(now())
+}
+
+model ConversationSummary {
+  id               String   @id @default(cuid())
+  sessionId        String
+  session          Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  summary          String
+  summarizedUpToId String   // 요약에 포함된 마지막 메시지 ID
+  messageCount     Int
+  createdAt        DateTime @default(now())
 }
 
 model File {
