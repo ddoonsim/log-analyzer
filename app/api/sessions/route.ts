@@ -138,6 +138,8 @@ export async function POST(request: NextRequest) {
     const analysisPrompt = buildInitialAnalysisPrompt(systemInfo, optimizedFiles);
 
     let analysisResult: string;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     try {
       const response = await anthropic.messages.create({
@@ -151,6 +153,10 @@ export async function POST(request: NextRequest) {
           },
         ],
       });
+
+      // 토큰 사용량 추적
+      totalInputTokens += response.usage.input_tokens;
+      totalOutputTokens += response.usage.output_tokens;
 
       // 응답에서 텍스트 추출
       const textBlock = response.content.find((block) => block.type === "text");
@@ -192,6 +198,10 @@ ${analysisResult.slice(0, 1000)}`,
         ],
       });
 
+      // 제목 생성 토큰 사용량 추적
+      totalInputTokens += titleResponse.usage.input_tokens;
+      totalOutputTokens += titleResponse.usage.output_tokens;
+
       const titleBlock = titleResponse.content.find((block) => block.type === "text");
       if (titleBlock) {
         generatedTitle = titleBlock.text.trim().replace(/^["']|["']$/g, "");
@@ -206,6 +216,8 @@ ${analysisResult.slice(0, 1000)}`,
         title: generatedTitle,
         summary: analysisResult.slice(0, 500),
         issueCount: Math.min(issueCount, 99),
+        totalInputTokens,
+        totalOutputTokens,
       },
     });
 
