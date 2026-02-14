@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import ChatMessage from "./ChatMessage";
 import ChatInput from "./ChatInput";
 import QuickQuestions from "./QuickQuestions";
+import TokenUsage from "./TokenUsage";
 
 interface AttachedFile {
   id: string;
@@ -18,22 +19,47 @@ interface Message {
   createdAt: Date;
 }
 
+interface TokenUsageData {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 interface ChatInterfaceProps {
   sessionId: string;
   initialMessages: Message[];
+  initialTokenUsage?: TokenUsageData;
 }
 
 export default function ChatInterface({
   sessionId,
   initialMessages,
+  initialTokenUsage,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const initialMessageCount = initialMessages.length;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState("");
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageData>(
+    initialTokenUsage || { inputTokens: 0, outputTokens: 0 }
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const fetchTokenUsage = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTokenUsage({
+          inputTokens: data.inputTokens,
+          outputTokens: data.outputTokens,
+        });
+      }
+    } catch {
+      // 토큰 조회 실패는 무시
+    }
+  }, [sessionId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -140,6 +166,9 @@ export default function ChatInterface({
 
       setMessages((prev) => [...prev, assistantMessage]);
       setStreamingContent("");
+
+      // 스트리밍 완료 후 토큰 사용량 갱신 (서버 저장 대기를 위해 약간 지연)
+      setTimeout(() => fetchTokenUsage(), 1000);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         // 취소된 요청
@@ -156,6 +185,16 @@ export default function ChatInterface({
 
   return (
     <div className="flex h-[calc(100vh-200px)] flex-col rounded-xl border border-border bg-card">
+      {/* 토큰 사용량 표시 */}
+      {(tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0) && (
+        <div className="flex justify-end px-4 pt-3">
+          <TokenUsage
+            inputTokens={tokenUsage.inputTokens}
+            outputTokens={tokenUsage.outputTokens}
+          />
+        </div>
+      )}
+
       {/* 메시지 목록 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (

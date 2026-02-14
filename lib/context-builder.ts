@@ -6,6 +6,13 @@ import { parseLog, buildLogSummary, formatEntryForPrompt } from "./parser";
 const MAX_LOG_TOKENS = 15000; // 로그 컨텐츠 최대 토큰 (전체)
 const MAX_FILE_TOKENS = 10000; // 파일당 최대 토큰
 
+// 컨텍스트 윈도우 관리 상수
+export const MAX_CONTEXT_TOKENS = 200_000;
+export const MAX_OUTPUT_TOKENS = 4_096;
+export const SAFETY_MARGIN = 10_000;
+export const RECENT_MESSAGES_TO_KEEP = 6;
+export const SUMMARIZATION_THRESHOLD = 0.8;
+
 interface SystemInfo {
   os: string;
   appName: string;
@@ -35,7 +42,7 @@ interface ChatContext {
 /**
  * 대략적인 토큰 수 계산
  */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   // 한글은 글자당 약 2토큰, 영문/숫자는 단어당 약 1토큰으로 추정
   const koreanChars = (text.match(/[가-힣]/g) || []).length;
   const otherChars = text.length - koreanChars;
@@ -259,5 +266,120 @@ export function processNewFile(
     originalSize: content.length,
     truncated,
     formatSummary,
+  };
+}
+
+/**
+ * 윈도우 컨텍스트 빌더 — 3-Zone 메시지 윈도우 적용
+ *
+ * [Zone A] 초기 분석 (항상 유지) — messages[0]
+ * [Zone B] 중간 메시지 → 요약으로 압축
+ * [Zone C] 최근 메시지 (항상 유지) — 마지막 RECENT_MESSAGES_TO_KEEP개
+ */
+export async function buildChatContextWithWindowing(
+  sessionId: string
+): Promise<ChatContext | null> {
+  // 기존 로직으로 세션/파일/메시지 로드
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    include: {
+      files: { orderBy: { uploadedAt: "asc" } },
+      messages: { orderBy: { createdAt: "asc" } },
+    },
+  });
+
+  if (!session) return null;
+
+  const systemInfo: SystemInfo = JSON.parse(session.systemInfo);
+
+  // 파일 처리 (토큰 제한 적용)
+  let totalLogTokens = 0;
+  const processedFiles: ProcessedFile[] = [];
+
+  for (const file of session.files) {
+    if (file.messageId) continue;
+
+    const remainingTokens = MAX_LOG_TOKENS - totalLogTokens;
+    if (remainingTokens <= 0) {
+      processedFiles.push({
+        filename: file.filename,
+        content: "[토큰 제한으로 생략됨]",
+        originalSize: file.size,
+        truncated: true,
+      });
+      continue;
+    }
+
+    const { content, truncated } = optimizeLogContent(
+      file.content,
+      Math.min(MAX_FILE_TOKENS, remainingTokens)
+    );
+
+    processedFiles.push({
+      filename: file.filename,
+      content,
+      originalSize: file.size,
+      truncated,
+    });
+
+    totalLogTokens += estimateTokens(content);
+  }
+
+  const systemPromptContext = buildSystemPromptContext(systemInfo, processedFiles);
+
+  // 시스템 프롬프트 + 파일 토큰 계산 → 대화 예산 산출
+  const systemTokens = estimateTokens(systemPromptContext) + totalLogTokens;
+  const conversationBudget =
+    MAX_CONTEXT_TOKENS - systemTokens - MAX_OUTPUT_TOKENS - SAFETY_MARGIN;
+
+  // 전체 메시지 토큰 계산
+  const allMessages = session.messages.map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+  }));
+
+  const totalMessageTokens = allMessages.reduce(
+    (sum, msg) => sum + estimateTokens(msg.content),
+    0
+  );
+
+  // 예산 내면 그대로 반환
+  if (totalMessageTokens <= conversationBudget) {
+    return { systemInfo, files: processedFiles, messages: allMessages, systemPromptContext };
+  }
+
+  // 예산 초과 → 3-Zone 윈도우 적용
+  const { getLatestSummary } = await import("./summarizer");
+  const latestSummary = await getLatestSummary(sessionId);
+
+  // Zone A: 첫 번째 메시지 (초기 분석)
+  const zoneA = allMessages.length > 0 ? [allMessages[0]] : [];
+
+  // Zone C: 최근 메시지
+  const zoneCStart = Math.max(1, allMessages.length - RECENT_MESSAGES_TO_KEEP);
+  const zoneC = allMessages.slice(zoneCStart);
+
+  // Zone B: 요약 메시지 구성
+  const zoneB: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  if (latestSummary) {
+    zoneB.push({
+      role: "user",
+      content: `[이전 대화 요약]\n${latestSummary.summary}`,
+    });
+    zoneB.push({
+      role: "assistant",
+      content: "네, 이전 대화 내용을 이해했습니다. 요약된 내용을 바탕으로 계속 도와드리겠습니다.",
+    });
+  }
+  // 요약이 없으면 Zone B를 단순 생략 (fallback)
+
+  const windowedMessages = [...zoneA, ...zoneB, ...zoneC];
+
+  return {
+    systemInfo,
+    files: processedFiles,
+    messages: windowedMessages,
+    systemPromptContext,
   };
 }

@@ -4,10 +4,11 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { prisma } from "@/lib/db";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 import {
-  buildChatContext,
+  buildChatContextWithWindowing,
   formatFilesForPrompt,
   processNewFile,
 } from "@/lib/context-builder";
+import { checkAndSummarizeIfNeeded } from "@/lib/summarizer";
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,8 +32,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. 컨텍스트 빌더로 세션 정보 조회
-    const context = await buildChatContext(sessionId);
+    // 3. 컨텍스트 빌더로 세션 정보 조회 (윈도우 컨텍스트 적용)
+    const context = await buildChatContextWithWindowing(sessionId);
 
     if (!context) {
       return new Response(
@@ -114,8 +115,8 @@ ${filesContent}`;
         system: fullSystemPrompt,
         messages: conversationHistory,
         maxOutputTokens: 4096,
-        // 7. 스트리밍 완료 후 assistant 메시지 DB 저장
-        onFinish: async ({ text }) => {
+        // 7. 스트리밍 완료 후 assistant 메시지 DB 저장 + 토큰 누적
+        onFinish: async ({ text, usage }) => {
           await prisma.message.create({
             data: {
               sessionId,
@@ -124,11 +125,20 @@ ${filesContent}`;
             },
           });
 
-          // 세션 업데이트
+          // 세션 업데이트 (토큰 사용량 누적)
           await prisma.session.update({
             where: { id: sessionId },
-            data: { updatedAt: new Date() },
+            data: {
+              updatedAt: new Date(),
+              totalInputTokens: { increment: usage.inputTokens ?? 0 },
+              totalOutputTokens: { increment: usage.outputTokens ?? 0 },
+            },
           });
+
+          // 비동기로 요약 필요 여부 체크 (응답 차단 안 함)
+          checkAndSummarizeIfNeeded(sessionId).catch((err) =>
+            console.error("요약 체크 실패:", err)
+          );
         },
       });
 
