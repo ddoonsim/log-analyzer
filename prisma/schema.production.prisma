@@ -1,0 +1,59 @@
+// Production Prisma Schema - PostgreSQL
+// Docker 빌드 시 이 파일이 schema.prisma를 대체합니다.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                String    @id @default(cuid())
+  title             String?
+  systemInfo        String    // JSON string
+  summary           String?
+  issueCount        Int       @default(0)
+  totalInputTokens  Int       @default(0)
+  totalOutputTokens Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  messages          Message[]
+  files             File[]
+  summaries         ConversationSummary[]
+}
+
+model Message {
+  id            String   @id @default(cuid())
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role          String
+  content       String
+  attachedFiles File[]
+  createdAt     DateTime @default(now())
+}
+
+model ConversationSummary {
+  id               String   @id @default(cuid())
+  sessionId        String
+  session          Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  summary          String
+  summarizedUpToId String
+  messageCount     Int
+  createdAt        DateTime @default(now())
+}
+
+model File {
+  id         String   @id @default(cuid())
+  sessionId  String
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  messageId  String?
+  message    Message? @relation(fields: [messageId], references: [id])
+  filename   String
+  mimeType   String
+  size       Int
+  content    String
+  uploadedAt DateTime @default(now())
+}

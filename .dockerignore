@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Next.js build output
+.next
+
+# Git
+.git
+.gitignore
+
+# Environment (secrets)
+.env
+.env.local
+.env.production.local
+.env*.local
+
+# Database (local dev)
+*.db
+*.db-journal
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs & Config
+README.md
+CLAUDE.md
+docs/
+nul
+
+# Docker (prevent recursive copy)
+docker-compose*.yml
