@@ -1,0 +1,100 @@
+version: "3.8"
+
+services:
+  # =============================================================
+  # PostgreSQL Database
+  # =============================================================
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: log_analyzer
+      POSTGRES_USER: ${POSTGRES_USER:-loganalyzer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-loganalyzer} -d log_analyzer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # =============================================================
+  # Next.js Application
+  # =============================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-loganalyzer}:${POSTGRES_PASSWORD}@db:5432/log_analyzer?schema=public
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =============================================================
+  # Nginx Reverse Proxy + SSL Termination
+  # =============================================================
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - certbot_conf:/etc/nginx/ssl:ro
+      - certbot_www:/var/www/certbot:ro
+    environment:
+      - DOMAIN=${DOMAIN:?DOMAIN is required}
+    depends_on:
+      app:
+        condition: service_healthy
+    # nginx:alpine은 /etc/nginx/templates/*.template을
+    # 환경 변수 치환하여 /etc/nginx/conf.d/에 출력합니다.
+    # 하지만 우리는 nginx.conf 전체를 대체하므로 entrypoint를 사용합니다.
+    command: >
+      /bin/sh -c "
+        envsubst '$$DOMAIN' < /etc/nginx/templates/default.conf.template > /etc/nginx/nginx.conf &&
+        nginx -g 'daemon off;'
+      "
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # =============================================================
+  # Certbot - Let's Encrypt 자동 갱신
+  # =============================================================
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # 12시간마다 갱신 체크 (Let's Encrypt 권장 주기)
+    # 갱신 성공 시 Nginx에 reload 시그널 전송
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done"
+    depends_on:
+      - nginx
+
+volumes:
+  postgres_data:
+    driver: local
+  certbot_conf:
+    driver: local
+  certbot_www:
+    driver: local

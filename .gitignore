@@ -38,6 +38,8 @@ next-env.d.ts
 # Environment
 .env
 .env.local
+.env.production.local
+.env*.local
 
 # Database
 *.db
