@@ -111,14 +111,19 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 3. 파일들 File 테이블에 저장
+    // 3. 파일들 File 테이블에 저장 (파일당 최대 5MB로 제한)
+    const MAX_DB_CONTENT_SIZE = 5_000_000;
     await prisma.file.createMany({
       data: fileContents.map((file) => ({
         sessionId: session.id,
         filename: file.filename,
         mimeType: file.mimeType,
         size: file.size,
-        content: file.content,
+        content:
+          file.content.length > MAX_DB_CONTENT_SIZE
+            ? file.content.slice(0, MAX_DB_CONTENT_SIZE) +
+              "\n\n[파일이 너무 커서 앞부분 5MB만 저장되었습니다]"
+            : file.content,
       })),
     });
 
